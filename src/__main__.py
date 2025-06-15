@@ -11,6 +11,7 @@ load_dotenv()
 
 app = App(token=os.getenv("SLACK_BOT_TOKEN"))
 client = WebClient(token=os.getenv("SLACK_BOT_TOKEN"))
+user_client = WebClient(token=os.getenv("SLACK_USER_TOKEN"))
 
 user_threads = {}
 completed_threads = {}
@@ -268,13 +269,20 @@ def handle_delete_thread(ack, body, client):
 
                 for message in messages:
                     try:
-                        client.chat_delete(
+                        user_client.chat_delete(
                             channel=CHANNEL,
-                            ts=message["ts"]
+                            ts=message["ts"],
+                            as_user=True
                         )
                     except SlackApiError as err:
-                        print(f"Couldn't delete messages {message['ts']}: {err}")
-                        continue
+                        try:
+                            client.chat_delete(
+                                channel=CHANNEL,
+                                ts=message["ts"]
+                            )
+                        except SlackApiError as err:
+                            print(f"Couldn't delete messages {message['ts']}: {err}")
+                            continue
             except SlackApiError as err:
                 print(f"Couldn't delete the main message: {err}")
 
