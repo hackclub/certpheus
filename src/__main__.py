@@ -35,9 +35,6 @@ def get_user_info(user_id):
 
 def post_message_to_channel(user_id, message_text, user_info):
     """Post user's message to the given channel, either as new message or new reply"""
-    if user_id in completed_threads:
-        return create_new_thread(user_id, message_text, user_info)
-
     if user_id in user_threads:
         try:
             response = client.chat_postMessage(
@@ -138,8 +135,8 @@ def create_new_thread(user_id, message_text, user_info):
             "message_ts": response["ts"]
         }
 
-        if user_id in completed_threads:
-            del completed_threads[user_id]
+        if user_id not in completed_threads:
+            completed_threads[user_id] = []
         return True
     except SlackApiError as err:
         print(f"Error creating new thread: {err}")
@@ -241,7 +238,9 @@ def handle_mark_completed(ack, body, client):
         )
 
         if user_id in user_threads:
-            completed_threads[user_id] = user_threads[user_id].copy()
+            completed_threads[user_id].append(user_threads[user_id].copy())
+
+        del user_threads[user_id]
         print(f"Marked thread for user {user_id} as completed")
     except SlackApiError as err:
         print(f"Error marking thread as completed: {err}")
@@ -252,43 +251,61 @@ def handle_delete_thread(ack, body, client):
     ack()
 
     user_id = body["actions"][0]["value"]
+    message_ts = body["message"]["ts"]
 
     try:
-        if user_id in user_threads:
+        thread_info = None
+        is_active = False
+        thread_index = -1
+
+        if user_id in user_threads and user_threads[user_id]["message_ts"] == message_ts:
             thread_info = user_threads[user_id]
-            thread_ts = thread_info["thread_ts"]
+            is_active = True
+        else:
+            if user_id in completed_threads:
+                for i, completed_thread in enumerate(completed_threads[user_id]):
+                    if completed_thread["message_ts"] == message_ts:
+                        thread_info = completed_thread
+                        thread_index = i
+                        break
+        if not thread_info:
+            print(f"Could not find thread info for user {user_id} and message {message_ts}")
+            return
 
-            try:
-                response = client.conversations_replies(
-                    channel=CHANNEL,
-                    ts=thread_ts,
-                    inclusive=True
-                )
-                messages = response["messages"]
-                print(f"{len(messages)} messages to delete")
+        thread_ts = thread_info["thread_ts"]
 
-                for message in messages:
+        try:
+            response = client.conversations_replies(
+                channel=CHANNEL,
+                ts=thread_ts,
+                inclusive=True
+            )
+            messages = response["messages"]
+            print(f"{len(messages)} messages to delete")
+
+            for message in messages:
+                try:
+                    user_client.chat_delete(
+                        channel=CHANNEL,
+                        ts=message["ts"],
+                        as_user=True
+                    )
+                except SlackApiError as err:
                     try:
-                        user_client.chat_delete(
+                        client.chat_delete(
                             channel=CHANNEL,
-                            ts=message["ts"],
-                            as_user=True
+                            ts=message["ts"]
                         )
                     except SlackApiError as err:
-                        try:
-                            client.chat_delete(
-                                channel=CHANNEL,
-                                ts=message["ts"]
-                            )
-                        except SlackApiError as err:
-                            print(f"Couldn't delete messages {message['ts']}: {err}")
-                            continue
-            except SlackApiError as err:
-                print(f"Couldn't delete the main message: {err}")
+                        print(f"Couldn't delete messages {message['ts']}: {err}")
+                        continue
+        except SlackApiError as err:
+            print(f"Error deleting thread: {err}")
 
+        if is_active:
             del user_threads[user_id]
-            if user_id in completed_threads:
-                del completed_threads[user_id]
+        elif thread_index >= 0:
+            completed_threads[user_id].pop(thread_index)
         print(f"Deleted thread for user {user_id}")
     except SlackApiError as err:
         print(f"Error deleting thread: {err}")

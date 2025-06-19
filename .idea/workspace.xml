@@ -43,6 +43,7 @@
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
     &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
 }</component>
@@ -68,7 +69,9 @@
       <option name="presentableId" value="Default" />
       <updated>1749924446441</updated>
       <workItem from="1749924447499" duration="5259000" />
-      <workItem from="1749967173145" duration="6978000" />
+      <workItem from="1749967173145" duration="9122000" />
+      <workItem from="1750073876382" duration="78000" />
+      <workItem from="1750074024561" duration="5335000" />
     </task>
     <servers />
   </component>
@@ -76,6 +79,6 @@
     <option name="version" value="3" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/Fraudpheus$__main__.coverage" NAME="__main__ Coverage Results" MODIFIED="1749973486517" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
+    <SUITE FILE_PATH="coverage/Fraudpheus$__main__.coverage" NAME="__main__ Coverage Results" MODIFIED="1750079214935" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src" />
   </component>
 </project>
