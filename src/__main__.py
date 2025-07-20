@@ -196,6 +196,13 @@ def handle_fdchat_cmd(ack, respond, command):
     """Handle conversations started by staff"""
     ack()
 
+    if command.get("channel_id") != CHANNEL:
+        respond({
+            "response_type": "ephemeral",
+            "text": f"This command can only be used in one place. If you don't know it, don't even try"
+        })
+        return
+
     command_text = command.get("text", "").strip()
 
     # Validation goes brrr
@@ -396,7 +403,17 @@ def handle_delete_thread(ack, body, client):
     message_ts = body["message"]["ts"]
 
     try:
-        thread_info, is_active = thread_manager.delete_thread(user_id, message_ts)
+        thread_info = {}
+
+        # Check if user has an active thread - get its info
+        if user_id in thread_manager.active_cache and thread_manager.active_cache[user_id]["message_ts"] == message_ts:
+            thread_info = thread_manager.active_cache[user_id]
+        # Else, if he has a completed thread, get that info
+        elif user_id in thread_manager.completed_cache:
+            for i, thread in enumerate(thread_manager.completed_cache[user_id]):
+                if thread["message_ts"] == message_ts:
+                    thread_info = thread
+                    break
 
         if not thread_info:
             print(f"Couldn't find thread info for {user_id} (messages ts {message_ts})")
@@ -431,6 +448,8 @@ def handle_delete_thread(ack, body, client):
                         continue
         except SlackApiError as err:
             print(f"Error deleting thread: {err}")
+
+        thread_manager.delete_thread(user_id, message_ts)
 
         print(f"Deleted thread for user {user_id}")
 

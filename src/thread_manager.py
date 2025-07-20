@@ -1,5 +1,4 @@
 from datetime import datetime
-from operator import truediv
 
 
 class ThreadManager:
@@ -32,7 +31,7 @@ class ThreadManager:
             # Load completed threads
             completed_records = self.completed_threads_table.all()
             for record in completed_records:
-                fields = record["fields"],
+                fields = record["fields"]
                 user_id = fields.get("user_id")
                 if user_id:
                     if user_id not in self._completed_cache:
@@ -146,7 +145,7 @@ class ThreadManager:
                 self.active_threads_table.delete(record_id)
                 del self._active_cache[user_id]
                 print(f"Deleted active thread for {user_id}")
-                return self._active_cache[user_id] if user_id in self._active_cache else None, True
+                return self._active_cache.get(user_id)
 
             # Now look for completed thread with this ts, delete it if possible
             if user_id in self._completed_cache:
@@ -167,3 +166,7 @@ class ThreadManager:
     @property
     def active_cache(self):
         return self._active_cache
+
+    @property
+    def completed_cache(self):
+        return self._completed_cache
