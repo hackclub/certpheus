@@ -7,17 +7,25 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+from pyairtable import Api
+
+from src.thread_manager import ThreadManager
 
 load_dotenv()
 
+# Slack setup
 app = App(token=os.getenv("SLACK_BOT_TOKEN"))
 client = WebClient(token=os.getenv("SLACK_BOT_TOKEN"))
 user_client = WebClient(token=os.getenv("SLACK_USER_TOKEN"))
 
-user_threads = {}
-completed_threads = {}
-
 CHANNEL = os.getenv("CHANNEL_ID")
+
+# Airtable setup
+airtable_api = Api(os.getenv("AIRTABLE_API_KEY"))
+airtable_base = airtable_api.base(os.getenv("AIRTABLE_BASE_ID"))
+
+# Thread stuff
+thread_manager = ThreadManager(airtable_base)
 
 
 def get_standard_channel_msg(user_id, message_text):
@@ -107,15 +115,18 @@ def get_user_info(user_id):
 
 def post_message_to_channel(user_id, message_text, user_info):
     """Post user's message to the given channel, either as new message or new reply"""
-    if user_id in user_threads:
+    if thread_manager.has_active_thread(user_id):
+        thread_info = thread_manager.get_active_thread(user_id)
+
         try:
             response = client.chat_postMessage(
                 channel=CHANNEL,
-                thread_ts=user_threads[user_id]["thread_ts"],
+                thread_ts=thread_info["thread_ts"],
                 text=f"{message_text}",
                 username=user_info["display_name"],
                 icon_url=user_info["avatar"]
             )
+            thread_manager.update_thread_activity(user_id)
             return True
         except SlackApiError as err:
             print(f"Error writing to a thread: {err}")
@@ -134,15 +145,14 @@ def create_new_thread(user_id, message_text, user_info):
             blocks=get_standard_channel_msg(user_id, message_text)
         )
 
-        user_threads[user_id] = {
-            "thread_ts": response["ts"],
-            "channel": CHANNEL,
-            "message_ts": response["ts"]
-        }
+        success = thread_manager.create_active_thread(
+            user_id,
+            CHANNEL,
+            response["ts"],
+            response["ts"]
+        )
 
-        if user_id not in completed_threads:
-            completed_threads[user_id] = []
-        return True
+        return success
     except SlackApiError as err:
         print(f"Error creating new thread: {err}")
         return False
@@ -223,14 +233,17 @@ def handle_fdchat_cmd(ack, respond, command):
         return
 
     # Check if user has an active thread, if so - use it
-    if target_user_id in user_threads:
+    if thread_manager.has_active_thread(target_user_id):
+        thread_info = thread_manager.get_active_thread(target_user_id)
+
         try:
             client.chat_postMessage(
                 channel=CHANNEL,
-                thread_ts=user_threads[target_user_id]["thread_ts"],
+                thread_ts=thread_info["thread_ts"],
                 text=f"*Staff started:*\n{staff_message}"
             )
             success = send_dm_to_user(target_user_id, staff_message)
+            thread_manager.update_thread_activity(target_user_id)
 
             if success:
                 respond({
@@ -268,14 +281,12 @@ def handle_fdchat_cmd(ack, respond, command):
         )
 
         # Track the thread
-        user_threads[target_user_id] = {
-            "thread_ts": response["ts"],
-            "channel": CHANNEL,
-            "message_ts": response["ts"]
-        }
-
-        if target_user_id not in completed_threads:
-            completed_threads[target_user_id] = []
+        thread_manager.create_active_thread(
+            target_user_id,
+            CHANNEL,
+            response["ts"],
+            response["ts"]
+        )
 
         respond({
             "response_type": "ephemeral",
@@ -289,89 +300,6 @@ def handle_fdchat_cmd(ack, respond, command):
             "response_type": "ephemeral",
             "text": f"Error starting conversation: {err}"
         })
-
-def handle_staff_start(message, say):
-    """Handle conversations started by staff"""
-    channel_id = message.get("channel")
-    message_text = message["text"]
-    request_user_id = message["user"]
-
-    # Fancy guard against unauthorized usage
-    if channel_id != CHANNEL:
-        return False
-    if not (message_text.startswith("/fdchat ") or message_text.startswith("!fdchat ")):
-        return False
-
-    content = message_text[7:]
-    parts = content.split(" ")
-    if len(parts) < 2:
-        say("Usage: '/fdchat @user your message' or '/fdchat U000000 your message'")
-        return True
-
-    user_id = parts[1]
-    staff_message = ' '.join(parts[2:])
-
-    target_user_id = extract_user_id(user_id)
-    if not target_user_id:
-        print(target_user_id)
-        say("Provide a valid user ID (U000000) or a mention (@user)")
-        return True
-
-    user_info = get_user_info(target_user_id)
-    if not user_info:
-        say(f"Couldn't find user info for {target_user_id}")
-        return True
-
-    if target_user_id in user_threads:
-        say(f"User {user_info['display_name']} has an active thread")
-        try:
-            client.chat_postMessage(
-                channel=CHANNEL,
-                thread_ts=user_threads[target_user_id]["thread_ts"],
-                text=f"*Staff started:*\n{staff_message}"
-            )
-            send_dm_to_user(target_user_id, staff_message)
-            return True
-        except SlackApiError as err:
-            say(f"Error adding message to an existing thread: {err}")
-            return True
-
-    try:
-        success = send_dm_to_user(target_user_id, staff_message)
-        if not success:
-            say(f"Failed to send DM to user {target_user_id}")
-            return True
-
-        response = client.chat_postMessage(
-            channel=CHANNEL,
-            text=f"*Staff started:* {staff_message}",
-            username=user_info["display_name"],
-            icon_url=user_info["avatar"],
-            blocks=get_standard_channel_msg(target_user_id, staff_message)
-        )
-
-        user_threads[target_user_id] = {
-            "thread_ts": response["ts"],
-            "channel": CHANNEL,
-            "message_ts": response["ts"]
-        }
-
-        if target_user_id not in completed_threads:
-            completed_threads[target_user_id] = []
-
-        try:
-            client.chat_delete(
-                channel=CHANNEL,
-                ts=message["ts"]
-            )
-        except SlackApiError:
-            pass
-
-        print(f"Successfully started conversation with {target_user_id}")
-        return True
-    except SlackApiError as err:
-        say(f"Couldn't start message with {target_user_id}: {err}")
-        return True
 
 def handle_dms(user_id, message_text, say):
     """Receive and react to messages sent to the bot"""
@@ -393,8 +321,10 @@ def handle_all_messages(message, say, client, logger):
 
     #print(f"Message received - Channel: {channel_id}, Type: {channel_type}")
 
+    # DMs to the bot
     if channel_type == "im":
         handle_dms(user_id, message_text, say)
+    # Replies in the support channel
     elif channel_id == CHANNEL and "thread_ts" in message:
         print(f"Processing channel reply in thread {message['thread_ts']}")
         handle_channel_reply(message, client)
@@ -404,20 +334,20 @@ def handle_channel_reply(message, client):
     thread_ts = message["thread_ts"]
     reply_text = message["text"]
 
-    print(f"Processing reply in thread {thread_ts}: {reply_text}")
-
+    # Find user's active thread by TS
     target_user_id = None
-    for user_id, thread_info in user_threads.items():
-        if thread_info["thread_ts"] == thread_ts:
+    for user_id in thread_manager.active_cache:
+        thread_info = thread_manager.get_active_thread(user_id)
+
+        if thread_info and thread_info["thread_ts"] == thread_ts:
             target_user_id = user_id
             break
-
-    print(f"Found target user: {target_user_id}")
 
     if target_user_id:
         success = send_dm_to_user(target_user_id, reply_text)
 
         if success:
+            thread_manager.update_thread_activity(target_user_id)
             print(f"Successfully sent reply to user {target_user_id}")
         else:
             print(f"Failed to send reply to user {target_user_id}")
@@ -448,11 +378,12 @@ def handle_mark_completed(ack, body, client):
             name="white_check_mark"
         )
 
-        if user_id in user_threads:
-            completed_threads[user_id].append(user_threads[user_id].copy())
+        success = thread_manager.complete_thread(user_id)
+        if success:
+            print(f"Marked thread for user {user_id} as completed")
+        else:
+            print(f"Failed to mark {user_id}'s thread as completed")
 
-        del user_threads[user_id]
-        print(f"Marked thread for user {user_id} as completed")
     except SlackApiError as err:
         print(f"Error marking thread as completed: {err}")
 
@@ -465,22 +396,10 @@ def handle_delete_thread(ack, body, client):
     message_ts = body["message"]["ts"]
 
     try:
-        thread_info = None
-        is_active = False
-        thread_index = -1
+        thread_info, is_active = thread_manager.delete_thread(user_id, message_ts)
 
-        if user_id in user_threads and user_threads[user_id]["message_ts"] == message_ts:
-            thread_info = user_threads[user_id]
-            is_active = True
-        else:
-            if user_id in completed_threads:
-                for i, completed_thread in enumerate(completed_threads[user_id]):
-                    if completed_thread["message_ts"] == message_ts:
-                        thread_info = completed_thread
-                        thread_index = i
-                        break
         if not thread_info:
-            print(f"Could not find thread info for user {user_id} and message {message_ts}")
+            print(f"Couldn't find thread info for {user_id} (messages ts {message_ts})")
             return
 
         thread_ts = thread_info["thread_ts"]
@@ -513,11 +432,8 @@ def handle_delete_thread(ack, body, client):
         except SlackApiError as err:
             print(f"Error deleting thread: {err}")
 
-        if is_active:
-            del user_threads[user_id]
-        elif thread_index >= 0:
-            completed_threads[user_id].pop(thread_index)
         print(f"Deleted thread for user {user_id}")
+
     except SlackApiError as err:
         print(f"Error deleting thread: {err}")
 
