@@ -31,21 +31,21 @@ thread_manager = ThreadManager(airtable_base)
 def get_standard_channel_msg(user_id, message_text):
     """Get blocks for a standard message uploaded into channel with 2 buttons"""
     return [
-        {
+        { # Quick notice to whom the message is directed to
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"(User ID: `{user_id}`)"
+                "text": f"<@{user_id}> (User ID: `{user_id}`)"
             },
         },
-        {
+        { # Message
             "type": "section",
             "text": {
                 "type": "mrkdwn",
                 "text": message_text
             }
         },
-        {
+        { # A little guide, cause why not
             "type": "context",
             "elements": [
                 {
@@ -54,10 +54,10 @@ def get_standard_channel_msg(user_id, message_text):
                 }
             ]
         },
-        {
+        { # Fancy buttons
             "type": "actions",
             "elements": [
-                {
+                { # Complete this pain of a thread
                     "type": "button",
                     "text": {
                         "type": "plain_text",
@@ -67,7 +67,7 @@ def get_standard_channel_msg(user_id, message_text):
                     "action_id": "mark_completed",
                     "value": user_id
                 },
-                {
+                { # Delete it pls
                     "type": "button",
                     "text": {
                         "type": "plain_text",
@@ -76,7 +76,7 @@ def get_standard_channel_msg(user_id, message_text):
                     "style": "danger",
                     "action_id": "delete_thread",
                     "value": user_id,
-                    "confirm": {
+                    "confirm": { # Confirmation screen of delete thread button
                         "title": {
                             "type": "plain_text",
                             "text": "Are you sure?"
@@ -101,6 +101,7 @@ def get_standard_channel_msg(user_id, message_text):
 
 def get_user_info(user_id):
     """Get user's profile info"""
+    # Try getting name, profile pic and display name of the user
     try:
         response = client.users_info(user=user_id)
         user = response["user"]
@@ -109,12 +110,14 @@ def get_user_info(user_id):
             "avatar": user["profile"].get("image_72", ""),
             "display_name": user["profile"].get("display_name", user["name"])
         }
+
     except SlackApiError as err:
         print(f"Error during user info collection: {err}")
         return None
 
 def post_message_to_channel(user_id, message_text, user_info):
     """Post user's message to the given channel, either as new message or new reply"""
+    # Try uploading stuff into an old thread
     if thread_manager.has_active_thread(user_id):
         thread_info = thread_manager.get_active_thread(user_id)
 
@@ -128,15 +131,18 @@ def post_message_to_channel(user_id, message_text, user_info):
             )
             thread_manager.update_thread_activity(user_id)
             return True
+
         except SlackApiError as err:
             print(f"Error writing to a thread: {err}")
             return False
+    # Create a new thread
     else:
         return create_new_thread(user_id, message_text, user_info)
 
 def create_new_thread(user_id, message_text, user_info):
     """Create new thread in the channel"""
     try:
+        # Message
         response = client.chat_postMessage(
             channel=CHANNEL,
             text=f"*{user_id}*:\n{message_text}",
@@ -145,6 +151,7 @@ def create_new_thread(user_id, message_text, user_info):
             blocks=get_standard_channel_msg(user_id, message_text)
         )
 
+        # Create an entry in db
         success = thread_manager.create_active_thread(
             user_id,
             CHANNEL,
@@ -153,6 +160,7 @@ def create_new_thread(user_id, message_text, user_info):
         )
 
         return success
+
     except SlackApiError as err:
         print(f"Error creating new thread: {err}")
         return False
@@ -160,9 +168,11 @@ def create_new_thread(user_id, message_text, user_info):
 def send_dm_to_user(user_id, reply_text):
     """Send a reply back to the user"""
     try:
+        # Get DM channel of the user
         dm_response = client.conversations_open(users=[user_id])
         dm_channel = dm_response["channel"]["id"]
 
+        # Message them
         client.chat_postMessage(
             channel=dm_channel,
             text=reply_text,
@@ -171,6 +181,7 @@ def send_dm_to_user(user_id, reply_text):
         )
         print(f"Successfully sent reply to user {user_id}: {reply_text[:50]}...")
         return True
+
     except SlackApiError as err:
         print(f"Error sending reply to user {user_id}: {err}")
         print(f"Error response: {err.response}")
@@ -196,6 +207,8 @@ def handle_fdchat_cmd(ack, respond, command):
     """Handle conversations started by staff"""
     ack()
 
+    # A little safeguard against unauthorized usage, much easier to do it in one channel than checking
+    # Which person ran the command
     if command.get("channel_id") != CHANNEL:
         respond({
             "response_type": "ephemeral",
@@ -213,13 +226,12 @@ def handle_fdchat_cmd(ack, respond, command):
         })
         return
 
+    requester_id = command.get("user_id")
+
     # Getting the info about request
     parts = command_text.split(" ", 1)
     user_id = parts[0]
     staff_message = parts[1]
-    print(command_text)
-    print(user_id)
-    print(staff_message)
 
     # Enter the nickname pls
     target_user_id = extract_user_id(user_id)
@@ -247,11 +259,12 @@ def handle_fdchat_cmd(ack, respond, command):
             client.chat_postMessage(
                 channel=CHANNEL,
                 thread_ts=thread_info["thread_ts"],
-                text=f"*Staff started:*\n{staff_message}"
+                text=f"*<@{requester_id}> continued:*\n{staff_message}"
             )
             success = send_dm_to_user(target_user_id, staff_message)
             thread_manager.update_thread_activity(target_user_id)
 
+            # Some nice logs for clarity
             if success:
                 respond({
                     "response_type": "ephemeral",
@@ -269,7 +282,7 @@ def handle_fdchat_cmd(ack, respond, command):
                 "text": f"Something broke, awesome - couldn't add a message to an existing thread"
             })
             return
-    # Trying to create a new thread
+    # Try to create a new thread (Try, not trying. It was standing out a lot, I had to fix it a little)
     try:
         success = send_dm_to_user(target_user_id, staff_message)
         if not success:
@@ -279,9 +292,11 @@ def handle_fdchat_cmd(ack, respond, command):
             })
             return
 
+        staff_message = f"*{user_id} started a message to <@{target_user_id}>:*\n" + staff_message
+
         response = client.chat_postMessage(
             channel=CHANNEL,
-            text=f"*Staff started:* {staff_message}",
+            text=f"*<@{user_id}> started a message to <@{target_user_id}>:*\n {staff_message}",
             username=user_info["display_name"],
             icon_url=user_info["avatar"],
             blocks=get_standard_channel_msg(target_user_id, staff_message)
@@ -341,11 +356,16 @@ def handle_channel_reply(message, client):
     thread_ts = message["thread_ts"]
     reply_text = message["text"]
 
-    # Find user's active thread by TS
+    # Allow for notes (private messages between staff) by starting message with '!'
+    if reply_text[0] == '!':
+        return
+
+    # Find user's active thread by TS (look in cache -> look at TS)
     target_user_id = None
     for user_id in thread_manager.active_cache:
         thread_info = thread_manager.get_active_thread(user_id)
 
+        # Check the TS
         if thread_info and thread_info["thread_ts"] == thread_ts:
             target_user_id = user_id
             break
@@ -353,6 +373,7 @@ def handle_channel_reply(message, client):
     if target_user_id:
         success = send_dm_to_user(target_user_id, reply_text)
 
+        # Some logging
         if success:
             thread_manager.update_thread_activity(target_user_id)
             print(f"Successfully sent reply to user {target_user_id}")
@@ -378,6 +399,7 @@ def handle_mark_completed(ack, body, client):
     user_id = body["actions"][0]["value"]
     messages_ts = body["message"]["ts"]
 
+    # Give a nice checkmark
     try:
         client.reactions_add(
             channel=CHANNEL,
@@ -408,7 +430,7 @@ def handle_delete_thread(ack, body, client):
         # Check if user has an active thread - get its info
         if user_id in thread_manager.active_cache and thread_manager.active_cache[user_id]["message_ts"] == message_ts:
             thread_info = thread_manager.active_cache[user_id]
-        # Else, if he has a completed thread, get that info
+        # Else, if he has a completed thread - get that info
         elif user_id in thread_manager.completed_cache:
             for i, thread in enumerate(thread_manager.completed_cache[user_id]):
                 if thread["message_ts"] == message_ts:
@@ -421,6 +443,7 @@ def handle_delete_thread(ack, body, client):
 
         thread_ts = thread_info["thread_ts"]
 
+        # Try deleting
         try:
             response = client.conversations_replies(
                 channel=CHANNEL,
@@ -430,6 +453,8 @@ def handle_delete_thread(ack, body, client):
             messages = response["messages"]
             print(f"{len(messages)} messages to delete")
 
+            # Go through every message, delete em. First as user (Admins can delete other people's messages)
+            # If that fails then as a bot
             for message in messages:
                 try:
                     user_client.chat_delete(
