@@ -1,6 +1,7 @@
 import os
 import re
 
+import requests
 from dotenv import load_dotenv
 
 from slack_bolt import App
@@ -115,8 +116,20 @@ def get_user_info(user_id):
         print(f"Error during user info collection: {err}")
         return None
 
-def post_message_to_channel(user_id, message_text, user_info):
+def post_message_to_channel(user_id, message_text, user_info, files=None):
     """Post user's message to the given channel, either as new message or new reply"""
+    # Add file info into the message
+    # if files:
+    #    message_text += format_files_for_message(files)
+
+    # Slack is kinda weird and must have message text even when only file is shared
+    if not message_text or message_text.strip() == "":
+        return None
+
+    file_yes = False
+    if message_text == "[Shared a file]":
+        file_yes = True
+
     # Try uploading stuff into an old thread
     if thread_manager.has_active_thread(user_id):
         thread_info = thread_manager.get_active_thread(user_id)
@@ -129,6 +142,14 @@ def post_message_to_channel(user_id, message_text, user_info):
                 username=user_info["display_name"],
                 icon_url=user_info["avatar"]
             )
+
+            print("MSG", message_text)
+
+            # Remember to upload files if they exist!
+            # Temp v2
+            if file_yes and files: #and message_text.strip() != "" and message_text == "[Shared file]":
+                download_reupload_files(files, CHANNEL, thread_info["thread_ts"])
+
             thread_manager.update_thread_activity(user_id)
             return True
 
@@ -139,9 +160,13 @@ def post_message_to_channel(user_id, message_text, user_info):
     else:
         return create_new_thread(user_id, message_text, user_info)
 
-def create_new_thread(user_id, message_text, user_info):
+def create_new_thread(user_id, message_text, user_info, files=None):
     """Create new thread in the channel"""
     try:
+        # Add file info into the message
+        # if files:
+        #    message_text += format_files_for_message(files)
+
         # Message
         response = client.chat_postMessage(
             channel=CHANNEL,
@@ -150,6 +175,10 @@ def create_new_thread(user_id, message_text, user_info):
             icon_url=user_info["avatar"],
             blocks=get_standard_channel_msg(user_id, message_text)
         )
+
+        # Upload files if they exist!
+        if files:
+            download_reupload_files(files, CHANNEL, response["ts"])
 
         # Create an entry in db
         success = thread_manager.create_active_thread(
@@ -165,12 +194,20 @@ def create_new_thread(user_id, message_text, user_info):
         print(f"Error creating new thread: {err}")
         return False
 
-def send_dm_to_user(user_id, reply_text):
+def send_dm_to_user(user_id, reply_text, files=None):
     """Send a reply back to the user"""
+    print(f"Trying to send a DM {files}")
     try:
         # Get DM channel of the user
         dm_response = client.conversations_open(users=[user_id])
         dm_channel = dm_response["channel"]["id"]
+
+        # Temp v2
+        # if not reply_text or reply_text.strip() == "":
+        #    if files:
+        #        reply_text = "[Shared file]"
+        #    else:
+        #        reply_text = "[Empty message]"
 
         # Message them
         client.chat_postMessage(
@@ -179,7 +216,12 @@ def send_dm_to_user(user_id, reply_text):
             username="Fraudpheus",
             icon_emoji=":orph:"
         )
-        print(f"Successfully sent reply to user {user_id}: {reply_text[:50]}...")
+
+        # Upload files if they are there
+        # Temp v2
+        if files and reply_text == "[Shared file]":
+            download_reupload_files(files, dm_channel)
+
         return True
 
     except SlackApiError as err:
@@ -323,13 +365,16 @@ def handle_fdchat_cmd(ack, respond, command):
             "text": f"Error starting conversation: {err}"
         })
 
-def handle_dms(user_id, message_text, say):
+def handle_dms(user_id, message_text, files, say):
     """Receive and react to messages sent to the bot"""
+    #if message_text and files:
+    #    return
+
     user_info = get_user_info(user_id)
     if not user_info:
         say("Hiya! Couldn't process your message, try again another time")
         return
-    success = post_message_to_channel(user_id, message_text, user_info)
+    success = post_message_to_channel(user_id, message_text, user_info, files)
     if not success:
         say("There was some error during processing of your message, try again another time")
 
@@ -339,26 +384,35 @@ def handle_all_messages(message, say, client, logger):
     user_id = message["user"]
     message_text = message["text"]
     channel_type = message.get("channel_type", '')
+    files = message.get("files", [])
     channel_id = message.get("channel")
 
     #print(f"Message received - Channel: {channel_id}, Type: {channel_type}")
 
+    # Skip bot stuff
+    if message.get("bot_id"):
+        return
+
     # DMs to the bot
     if channel_type == "im":
-        handle_dms(user_id, message_text, say)
+        handle_dms(user_id, message_text, files, say)
     # Replies in the support channel
     elif channel_id == CHANNEL and "thread_ts" in message:
-        print(f"Processing channel reply in thread {message['thread_ts']}")
         handle_channel_reply(message, client)
 
 def handle_channel_reply(message, client):
     """Handle replies in channel to send them to users"""
     thread_ts = message["thread_ts"]
     reply_text = message["text"]
+    files = message.get("files", [])
 
     # Allow for notes (private messages between staff) by starting message with '!'
-    if reply_text[0] == '!':
+    if not reply_text or (len(reply_text) > 0 and reply_text[0] == '!'):
         return
+
+    #if reply_text and files:
+    #    return
+
 
     # Find user's active thread by TS (look in cache -> look at TS)
     target_user_id = None
@@ -371,12 +425,11 @@ def handle_channel_reply(message, client):
             break
 
     if target_user_id:
-        success = send_dm_to_user(target_user_id, reply_text)
+        success = send_dm_to_user(target_user_id, reply_text, files)
 
         # Some logging
         if success:
             thread_manager.update_thread_activity(target_user_id)
-            print(f"Successfully sent reply to user {target_user_id}")
         else:
             print(f"Failed to send reply to user {target_user_id}")
             try:
@@ -480,6 +533,124 @@ def handle_delete_thread(ack, body, client):
 
     except SlackApiError as err:
         print(f"Error deleting thread: {err}")
+
+@app.event("file_shared")
+def handle_file_shared(event, client, logger):
+    """Handle files being shared"""
+    try:
+        # ID of stuff
+        file_id = event["file_id"]
+        user_id = event["user_id"]
+        # Get that file info
+        file_info = client.files_info(file=file_id)
+        file_data = file_info["file"]
+
+        # Check if this is a DM
+        channels = file_data.get("channels", [])
+        groups = file_data.get("groups", [])
+        ims = file_data.get("ims", [])
+
+        print(f" channels {channels}\ngroups {groups}\n ims {ims}")
+
+        #
+        #if groups and not file_data.get("initial_comment") and file_data.get("comments_count") == 0:
+        #    success = send_dm_to_user(user_id, "", files=[file_data])
+
+        # Warning, warning - this is a DM! Also don't process files with messages, they are handled elsewhere
+        if ims and not file_data.get("initial_comment") and file_data.get("comments_count") == 0:
+            user_info = get_user_info(user_id)
+            message_text = "[Shared a file]"
+            if user_info:
+                success = post_message_to_channel(user_id, message_text, user_info, [file_data])
+
+                if not success:
+                    # Try to send an error message to the user, so he at least knows it failed...
+                    try:
+                        dm_response = client.conversations_open(users=user_id)
+                        dm_channel = dm_response["channel"]["id"]
+                        client.chat_postMessage(
+                            channel=dm_channel,
+                            type="ephemeral",
+                            username="Fraudpheus",
+                            icon_emoji=":orph:",
+                            text="*No luck for you, there was an issue processing your file*"
+                        )
+
+                    except SlackApiError as err:
+                        print(f"Failed to send error msg: {err}")
+
+    except SlackApiError as err:
+        logger.error(f"Error handling file_shared event: {err}")
+
+
+
+
+def format_file(files):
+    """Format file for a nice view in message"""
+    # If there are no files, no need for formatting
+    if not files:
+        return ""
+
+    # Collect info about files
+    file_info = []
+    for file in files:
+        # Get Type, name, size
+        file_type = file.get("mimetype", "unknown")
+        file_name = file.get("name", "unknown file")
+        file_size = file.get("size", 0)
+
+        # Convert into a nice style
+        if file_size > 1024 * 1024:
+            size_str = f"{file_size / (1024 * 1024):.1f}MB"
+        elif file_size > 1024:
+            size_str = f"{file_size / 1024:.1f}KB"
+        else:
+            size_str = f"{file_size}B"
+
+        file_info.append(f"File *{file_name} ({file_type}, {size_str})")
+
+    return "\n" + "\n".join(file_info)
+
+def download_reupload_files(files, channel, thread_ts=None):
+    """Download files, then reupload them to the target channel"""
+    reuploaded = []
+    for file in files:
+        # Try downloading the file
+        try:
+            # Get that URL to download it
+            file_url = file.get("url_private_download") or file.get("url_private")
+            if not file_url:
+                print(f"Can't really download without any url for file {file.get('name', 'unknown')}")
+                continue
+
+            headers = {'Authorization': f"Bearer {os.getenv('SLACK_BOT_TOKEN')}"}
+            response = requests.get(file_url, headers=headers)
+
+            # Upload that file!
+            if response.status_code == 200:
+                upload_params = {
+                    "channel": channel,
+                    "file": response.content,
+                    "filename": file.get("name", "file"),
+                    "title": file.get("title", file.get("name", "Some file without name?"))
+                }
+
+                if thread_ts:
+                    upload_params["thread_ts"] = thread_ts
+
+                upload_response = client.files_upload_v2(**upload_params)
+
+                # Awesome, file works - append it to the list
+                if upload_response.get("ok"):
+                    reuploaded.append(upload_response["file"])
+                else:
+                    print(f"Failed to reupload file: {upload_response.get('error')}")
+
+        except Exception as err:
+            print(f"Error processing file: {file.get('name', 'unknown'): {err}}")
+
+    return reuploaded
+
 
 @app.event("message")
 def handle_message_events(body, logger):
