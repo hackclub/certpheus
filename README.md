@@ -18,6 +18,17 @@ it will remain in the channel.
 - Deleting threads to keep the channel clean
 - Transferring files between channel members and people DMing the bot
 
+## Usage
+- Type `/fdchat @user msg` where `user` is a mention of someone (ping) and `msg` is your desired message. 
+It will send a message to the person you mentioned
+- Type `!msg` in existing thread of your channel to have a hidden message which won't be sent to chosen user.
+- Clicking `Mark as Completed` marks the thread as completed and puts a checkmark as a reaction.
+- Clicking `Delete thread` deletes the thread both from the channel and from the db.
+- New messages started by users DMing your bot, or answering to completed threads will appear as a new thread.
+
+
+<img src="https://hc-cdn.hel1.your-objectstorage.com/s/v3/1fa89e71bf580c2fafaae1f4d14505d0fa9286df_image.png">
+
 
 ## Setup
 ### Slack App
@@ -104,15 +115,3 @@ pip install -r requirements.txt
 
 After that your bot should be ready to run!<br>
 Just remember to add that bot to the channel
-
-
-## Usage
-- Type `/fdchat @user msg` where `user` is a mention of someone (ping) and `msg` is your desired message. 
-It will send a message to the person you mentioned
-- Type `!msg` in existing thread of your channel to have a hidden message which won't be sent to chosen user.
-- Clicking `Mark as Completed` marks the thread as completed and puts a checkmark as a reaction.
-- Clicking `Delete thread` deletes the thread both from the channel and from the db.
-- New messages started by users DMing your bot, or answering to completed threads will appear as a new thread.
-
-
-<img src="https://hc-cdn.hel1.your-objectstorage.com/s/v3/1fa89e71bf580c2fafaae1f4d14505d0fa9286df_image.png">
