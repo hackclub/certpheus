@@ -1,5 +1,6 @@
 import os
 import re
+import time
 
 import requests
 from dotenv import load_dotenv
@@ -334,7 +335,7 @@ def handle_fdchat_cmd(ack, respond, command):
             })
             return
 
-        staff_message = f"*{user_id} started a message to <@{target_user_id}>:*\n" + staff_message
+        staff_message = f"*<@{requester_id}> started a message to <@{target_user_id}>:*\n" + staff_message
 
         response = client.chat_postMessage(
             channel=CHANNEL,
@@ -498,38 +499,58 @@ def handle_delete_thread(ack, body, client):
 
         # Try deleting
         try:
-            response = client.conversations_replies(
-                channel=CHANNEL,
-                ts=thread_ts,
-                inclusive=True
-            )
-            messages = response["messages"]
-            print(f"{len(messages)} messages to delete")
+            # Going through some cursor stuff, cause of limits, grab 100 per iteration
+            cursor = None
+            while True:
+                api_args = {
+                    "channel": CHANNEL,
+                    "ts": thread_ts,
+                    "inclusive": True,
+                    "limit": 100
+                }
 
-            # Go through every message, delete em. First as user (Admins can delete other people's messages)
-            # If that fails then as a bot
-            for message in messages:
-                try:
-                    user_client.chat_delete(
-                        channel=CHANNEL,
-                        ts=message["ts"],
-                        as_user=True
-                    )
-                except SlackApiError as err:
+                if cursor:
+                    api_args["cursor"] = cursor
+
+                # Get these messages
+                response = client.conversations_replies(**api_args)
+                messages = response["messages"]
+
+                # Go through every message, delete em. First as user (Admins can delete other people's messages)
+                # If that fails then as a bot
+                for message in messages:
                     try:
-                        client.chat_delete(
+                        user_client.chat_delete(
                             channel=CHANNEL,
-                            ts=message["ts"]
+                            ts=message["ts"],
+                            as_user=True
                         )
+                        time.sleep(0.3)
+
                     except SlackApiError as err:
-                        print(f"Couldn't delete messages {message['ts']}: {err}")
-                        continue
+                        try:
+                            client.chat_delete(
+                                channel=CHANNEL,
+                                ts=message["ts"]
+                            )
+                            time.sleep(0.3)
+
+                        except SlackApiError as err:
+                            print(f"Couldn't delete messages {message['ts']}: {err}")
+                            if "ratelimited" in err:
+                                time.sleep(0.5)
+                            continue
+
+                # If there are more messages, grab em
+                if response.get("has_more", False) and response.get("response_metadata", {}).get("next_cursor"):
+                    cursor = response["response_metadata"]["next_cursor"]
+                else:
+                    break
+
         except SlackApiError as err:
             print(f"Error deleting thread: {err}")
 
         thread_manager.delete_thread(user_id, message_ts)
-
-        print(f"Deleted thread for user {user_id}")
 
     except SlackApiError as err:
         print(f"Error deleting thread: {err}")
@@ -578,6 +599,18 @@ def handle_file_shared(event, client, logger):
 
                     except SlackApiError as err:
                         print(f"Failed to send error msg: {err}")
+
+        # Message to the channel
+        elif groups and not file_data.get("initial_comment") and file_data.get("comments_count") == 0:
+            print(f"{file_data}")
+            # Gosh that took a long time, grabbing the channel shares to get thread_ts, quite creative, eh?
+            thread_ts = file_data.get("shares")["private"][CHANNEL][0]["thread_ts"]
+
+            # Find that user and finally message them
+            for user in thread_manager.active_cache:
+                if thread_manager.active_cache[user]["thread_ts"] == thread_ts:
+                    send_dm_to_user(user, "[Shared file]", [file_data])
+
 
     except SlackApiError as err:
         logger.error(f"Error handling file_shared event: {err}")
