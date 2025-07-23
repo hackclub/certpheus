@@ -144,8 +144,6 @@ def post_message_to_channel(user_id, message_text, user_info, files=None):
                 icon_url=user_info["avatar"]
             )
 
-            print("MSG", message_text)
-
             # Remember to upload files if they exist!
             # Temp v2
             if file_yes and files: #and message_text.strip() != "" and message_text == "[Shared file]":
@@ -197,7 +195,6 @@ def create_new_thread(user_id, message_text, user_info, files=None):
 
 def send_dm_to_user(user_id, reply_text, files=None):
     """Send a reply back to the user"""
-    print(f"Trying to send a DM {files}")
     try:
         # Get DM channel of the user
         dm_response = client.conversations_open(users=[user_id])
@@ -537,8 +534,7 @@ def handle_delete_thread(ack, body, client):
 
                         except SlackApiError as err:
                             print(f"Couldn't delete messages {message['ts']}: {err}")
-                            if "ratelimited" in err:
-                                time.sleep(0.5)
+                            time.sleep(0.2)
                             continue
 
                 # If there are more messages, grab em
@@ -571,8 +567,6 @@ def handle_file_shared(event, client, logger):
         groups = file_data.get("groups", [])
         ims = file_data.get("ims", [])
 
-        print(f" channels {channels}\ngroups {groups}\n ims {ims}")
-
         #
         #if groups and not file_data.get("initial_comment") and file_data.get("comments_count") == 0:
         #    success = send_dm_to_user(user_id, "", files=[file_data])
@@ -602,7 +596,6 @@ def handle_file_shared(event, client, logger):
 
         # Message to the channel
         elif groups and not file_data.get("initial_comment") and file_data.get("comments_count") == 0:
-            print(f"{file_data}")
             # Gosh that took a long time, grabbing the channel shares to get thread_ts, quite creative, eh?
             thread_ts = file_data.get("shares")["private"][CHANNEL][0]["thread_ts"]
 
