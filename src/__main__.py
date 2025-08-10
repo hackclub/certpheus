@@ -408,6 +408,9 @@ def handle_channel_reply(message, client):
     if not reply_text or (len(reply_text) > 0 and reply_text[0] != '!'):
         return
 
+    if reply_text[0] == '!':
+        reply_text = reply_text[1:]
+
     #if reply_text and files:
     #    return
 
