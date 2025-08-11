@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  fraudpheus:
+    build: .
+    container_name: fraudpheus-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    # Uncomment if you need to mount logs or data
+    # volumes:
+    #   - ./logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+    # Health check to ensure the bot is running
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
