@@ -217,7 +217,7 @@ def send_dm_to_user(user_id, reply_text, files=None):
 
         # Upload files if they are there
         # Temp v2
-        if files and reply_text == "[Shared file]":
+        if files and reply_text == "":
             download_reupload_files(files, dm_channel)
 
         return True
@@ -605,7 +605,7 @@ def handle_file_shared(event, client, logger):
             # Find that user and finally message them
             for user in thread_manager.active_cache:
                 if thread_manager.active_cache[user]["thread_ts"] == thread_ts:
-                    send_dm_to_user(user, "[Shared file]", [file_data])
+                    send_dm_to_user(user, "", [file_data])
 
 
     except SlackApiError as err:
