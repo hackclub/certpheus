@@ -211,8 +211,8 @@ def send_dm_to_user(user_id, reply_text, files=None):
         client.chat_postMessage(
             channel=dm_channel,
             text=reply_text,
-            username="Fraud Department",
-            icon_emoji=":ban:"
+            username="Certpheus",
+            icon_url="https://hc-cdn.hel1.your-objectstorage.com/s/v3/1807d070b4fadf5884893855a00b542a1acc1aca_image.png"
         )
 
         # Upload files if they are there
@@ -364,10 +364,10 @@ def handle_fdchat_cmd(ack, respond, command):
         })
 
 def handle_dms(user_id, message_text, files, say):
+    print("recieved dm :)")
     """Receive and react to messages sent to the bot"""
     #if message_text and files:
     #    return
-
     user_info = get_user_info(user_id)
     if not user_info:
         say("Hiya! Couldn't process your message, try again another time")
@@ -385,7 +385,7 @@ def handle_all_messages(message, say, client, logger):
     files = message.get("files", [])
     channel_id = message.get("channel")
 
-    #print(f"Message received - Channel: {channel_id}, Type: {channel_type}")
+    print(f"Message received - Channel: {channel_id}, Type: {channel_type}")
 
     # Skip bot stuff
     if message.get("bot_id"):
@@ -399,11 +399,11 @@ def handle_all_messages(message, say, client, logger):
         handle_channel_reply(message, client)
 
 def handle_channel_reply(message, client):
+    print("channel reply")
     """Handle replies in channel to send them to users"""
     thread_ts = message["thread_ts"]
     reply_text = message["text"]
     files = message.get("files", [])
-
     # Allow for notes (private messages between staff) if message isn't started with '!'
     if not reply_text or (len(reply_text) > 0 and reply_text[0] != '!'):
         return
@@ -589,8 +589,8 @@ def handle_file_shared(event, client, logger):
                         client.chat_postMessage(
                             channel=dm_channel,
                             type="ephemeral",
-                            username="Fraud Department",
-                            icon_emoji=":ban:",
+                            username="Certpheus",
+                            icon_url="https://hc-cdn.hel1.your-objectstorage.com/s/v3/1807d070b4fadf5884893855a00b542a1acc1aca_image.png",
                             text="*No luck for you, there was an issue processing your file*"
                         )
 
