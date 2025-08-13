@@ -128,7 +128,7 @@ def post_message_to_channel(user_id, message_text, user_info, files=None):
         return None
 
     file_yes = False
-    if message_text == "[Shared a file]":
+    if message_text == "":
         file_yes = True
 
     # Try uploading stuff into an old thread
@@ -577,7 +577,7 @@ def handle_file_shared(event, client, logger):
         # Warning, warning - this is a DM! Also don't process files with messages, they are handled elsewhere
         if ims and not file_data.get("initial_comment") and file_data.get("comments_count") == 0:
             user_info = get_user_info(user_id)
-            message_text = "[Shared a file]"
+            message_text = ""
             if user_info:
                 success = post_message_to_channel(user_id, message_text, user_info, [file_data])
 
