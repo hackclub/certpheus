@@ -1,0 +1,26 @@
+# Coolify Configuration
+# This file helps Coolify understand your application
+
+# Application Type
+type=docker
+
+# Build Configuration
+dockerfile=Dockerfile
+build_context=.
+
+# Port Configuration (even though this is a bot, Coolify needs a port)
+port=3000
+
+# Resource Requirements
+memory=512Mi
+cpu=0.5
+
+# Restart Policy
+restart_policy=unless-stopped
+
+# Health Check
+health_check_enabled=true
+health_check_path=/health
+health_check_interval=30s
+health_check_timeout=10s
+health_check_retries=3
