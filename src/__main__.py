@@ -242,8 +242,8 @@ def extract_user_id(text):
     return None
 
 
-@app.command("/certchat")
-def handle_certchat_cmd(ack, respond, command):
+@app.command("/certmsg")
+def handle_fdchat_cmd(ack, respond, command):
     """Handle conversations started by staff"""
     ack()
 
